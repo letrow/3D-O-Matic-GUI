@@ -34,7 +34,7 @@ class Textpanel(ttk.Frame):
         self.txt.insert('end', txt)
         self.txt.see( 'end')
         self.txt.configure(state='disabled')
-        
+
     def send(self):
         ''' Only used in MDI panel to send text to printer.'''
         model.xmtQ.put(self.txt.get('1.0', 'end').upper().strip('\n'))

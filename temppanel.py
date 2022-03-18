@@ -25,7 +25,7 @@ class Temppanel(ttk.Frame):
         
         self.cv = tk.Canvas(self, width=236, height=50, 
                             bd=1, highlightt=0, bg='black')
-        self.cv.create_rectangle( 1, 14, 200, 36, 
+        self.cv.create_rectangle( 2, 14, 200, 36, 
                                  fill='gray', outline='white')
         self.cv.create_polygon(-8, 0, 8, 0, 0, 13, 
                                  tags='arrow', fill='white', outline='navy')

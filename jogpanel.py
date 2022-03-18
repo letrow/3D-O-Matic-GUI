@@ -17,9 +17,10 @@ class Jogpanel(ttk.Frame):
     axes = ['X', 'Y', 'Z', 'E', 'E']
 
     
-    def __init__(self, master):
+    def __init__(self, master, status):
         ttk.Frame.__init__(self, master)
         self.master = master
+        self.status = status
         self.stepsize = tk.IntVar(self, 2)  # default to 10 mm
         self.stepsize.trace('w', self.setmm)
         self.lock=False
@@ -36,7 +37,6 @@ class Jogpanel(ttk.Frame):
                                   text = '-', style='Arrow.TButton')
         self.toffbtn = ttk.Button(self, command=self.touchoff, 
                                       text = 'Touch Off', width=10)
- 
         self.columnconfigure(0, weight=2)           
         self.columnconfigure(1, weight=3)           
         self.columnconfigure(2, weight=2)           
@@ -139,7 +139,7 @@ class Jogpanel(ttk.Frame):
     def doHome(self):
         ''' Issue home command for selected axis to printer. '''
         if model.selectedAxis == None:
-            print('No axis selected')
+            self.status.show('No axis selected\n')
             return
         axis = Jogpanel.axes[model.selectedAxis]
         if 'T'in axis:  # we don't home the extruder steppers
@@ -163,3 +163,12 @@ class Jogpanel(ttk.Frame):
         self.lock = False
         obj.destroy()
         
+    def disable(self):
+        ''' Disable all controls (avoids homing while printing).'''
+        for btn in  (self.upbtn, self.homebtn, self.downbtn, self.toffbtn):
+            btn.config(state = 'disabled')
+
+    def enable(self):
+        ''' Enable all controls.'''
+        for btn in  (self.upbtn, self.homebtn, self.downbtn, self.toffbtn):
+            btn.config(state = 'normal')

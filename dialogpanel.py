@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Feb 28 15:30:20 2022
 
-@author: hschulz
-"""
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
@@ -12,6 +7,7 @@ from tkinter import filedialog as fd
 from re import findall
 
 import model, transport
+
 
 class Dialogpanel(ttk.Frame):
     
@@ -25,12 +21,11 @@ class Dialogpanel(ttk.Frame):
         self.filename = None
         self.path = None    # remember directory for next time
         
-        
         self.portOpenbtn = ttk.Button(self, command=self.openComms, 
                                       text = 'Connect', width=10)
         self.fileOpenbtn = ttk.Button(self,command=self.getfile,
                                        text='Open File', width=10)
-        self.motorsOffbtn = ttk.Button(self,command=self.togglePower,
+        self.motorsOffbtn = ttk.Button(self,command=self.powerDown,
                                        text='Motors Off', width=10)
         self.printbtn = ttk.Button(self,command=self.startPrint,
                                        text='Print', width=10)
@@ -42,24 +37,20 @@ class Dialogpanel(ttk.Frame):
         self.fileOpenbtn.grid(row=0, column=2, padx=2, pady=2)
         self.printbtn.grid(row=0, column=3, padx=2, pady=2)
         self.abortbtn.grid(row=0, column=4, padx=2, pady=2)
-        self.update()
 
-    def update(self):
-        if model.gcodeFile and model.ready and not model.printing:
-            self.printbtn.config(state='normal')
-        else:
-            self.printbtn.config(state='disabled')
-        
+        self.enable((self.fileOpenbtn, self.portOpenbtn))
+        self.disable((self.motorsOffbtn, self.printbtn, self.abortbtn))
+
     def openComms(self):
         ''' pop up the open comms window to setp serial ink.'''
         if model.connected: # close port if already open
-# <TODO> this should first stop running data transfers 
-# and flush data before killing the threads
             transport.kill = True   # abort communication thread
             model.ready = False     # reset transprt state
             model.connected = False
-            model.homed = set()        # unhome all axes (needed??)
+            model.homed = set()     # unhome all axes (needed??)
             self.portOpenbtn.configure(text='Connect')
+            if model.gcodeFile:
+                self.disable((self.printbtn, self.motorsOffbtn))
             return
         if self.lock:   # allow only one instance of subwindow
             return
@@ -78,8 +69,9 @@ class Dialogpanel(ttk.Frame):
                            text='OK')
         entry1.insert(0, model.port)
         entry2.insert(0, str(model.baud))
-        cancelBtn = ttk.Button(openport, command= lambda: self.shutdown(openport), 
-                               width=8, text='Cancel')
+        cancelBtn = ttk.Button(openport, width=8,
+                               command=lambda: self.shutdown(openport), 
+                               text='Cancel')
         
         label1.grid(row=0, column=0, columnspan=3, pady=10, padx=5, sticky='W')
         entry1.grid(row=0, column=2, columnspan=2, pady=10, padx=5, sticky='E')
@@ -102,6 +94,9 @@ class Dialogpanel(ttk.Frame):
             model.connected = True
             self.status.show('Printer online\n')
             self.portOpenbtn.configure(text='Close')
+            self.enable((self.motorsOffbtn))
+            if model.gcodeFile:
+                self.enable(self.printbtn)
         except ValueError:
             print('Invalid baudrate')
         finally:
@@ -109,6 +104,7 @@ class Dialogpanel(ttk.Frame):
             self.lock = False
         
     def shutdown(self, widget):
+        ''' Destroy the specified widget.'''
         self.lock = False
         widget.destroy()
 
@@ -128,6 +124,10 @@ class Dialogpanel(ttk.Frame):
                 self.status.show('Opening ' + file)
                 # open the file for later use:
                 model.gcodeFile = open(self.filename)
+                model.filesize = len(model.gcodeFile.readlines())
+                model.gcodeFile.seek(0)
+                if model.connected:
+                    self.enable(self.printbtn)
         except Exception as e:
             messagebox.showerror('I/O Error', e)
             model.gcodeFile = None
@@ -136,26 +136,50 @@ class Dialogpanel(ttk.Frame):
                 self.status.show(' Failed\n' if not model.gcodeFile
                              else ' ..Ok\n')  
             
-    def togglePower(self):
-        ''' Send M84 or M17 to toggle motor power off / on. '''
-        cmd = ['M17', 'M84']
-        txt = ['Motors On', 'Motors Off']
-        model.xmtQ.put(cmd[model.powerIsOn])
-        model.powerIsOn = not model.powerIsOn
-        self.motorsOffbtn.configure(text=txt[model.powerIsOn])            
+    def powerDown(self):
+        ''' Send M81 to turn motor power off. '''
+        model.xmtQ.put('M81')
         
     def startPrint(self):
         if model.gcodeFile and model.ready and not model.printing:
-            self.status.show('Printing\n')
-            model.printing = True
+            self.status.show('Printing {} lines\n'.format(model.filesize))
+            model.curline = 0
             model.gcodeFile.seek(0)
-        else:
-            self.status.show('No file or printer not ready\n')
+            model.xmtQ.put('M110 N1')   # reset line number
+            model.linenum = 1
+            model.printing = True   # release the transmitter...
+            self.enable(self.abortbtn)
+            self.disable((self.motorsOffbtn, self.printbtn,
+                    self.portOpenbtn, self.fileOpenbtn))
 
     def stopPrint(self):
         if model.printing:
-            self.status.show('Abort\n')
+            self.status.show('\nAbort\n')
             model.printing = False
+            model.xmtQ.put('M110 N1')   # reset line number
+            model.linenum = 1
+            self.disable(self.abortbtn)
+            self.enable((self.motorsOffbtn, self.portOpenbtn, 
+                         self.fileOpenbtn, self.printbtn))
+#            if model.gcodeFile:
+#                self.enable(self.printbtn)
+                
+    def enable(self, btns):
+        ''' Set state of specified buttons to 'normal'.'''
+        try:    # if btns is iterable
+            for btn in btns:
+                btn.config(state = 'normal')
+        except TypeError: # else single item
+            btns.config(state = 'normal')
+        
+        
+    def disable(self, btns):
+        ''' Set state of specified buttons to 'disabled'.'''
+        try:    # iterable?
+            for btn in btns:
+                btn.config(state = 'disabled')
+        except TypeError: # else single item
+            btns.config(state = 'disabled')
 
 
 

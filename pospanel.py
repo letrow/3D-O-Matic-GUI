@@ -91,3 +91,12 @@ class Pospanel(ttk.Frame):
         if model.selectedAxis in (3,4): # 3 or 4: extruder 0 or 1 selected
             model.xmtQ.put('T'+ '01'[model.selectedAxis-3])
         
+    def disable(self):
+        ''' Disable all controls (could interfere with  printing).'''
+        for btn in  (self.e0btn, self.e1btn):
+            btn.config(state = 'disabled')
+
+    def enable(self):
+        ''' Enable all controls.'''
+        for btn in  (self.e0btn, self.e1btn):
+            btn.config(state = 'normal')
