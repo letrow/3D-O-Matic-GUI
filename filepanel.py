@@ -29,4 +29,3 @@ class Filepanel(ttk.Frame):
             path = re.findall('(.*\/).*$', self.filename)[0]
             self.path = path if path else None
 
-
