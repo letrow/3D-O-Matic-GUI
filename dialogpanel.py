@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python2
 
 import tkinter as tk
 from tkinter import ttk
@@ -6,17 +6,17 @@ from tkinter import messagebox
 from tkinter import filedialog as fd
 from re import findall
 
-import model, transport
-
+import data as d
 
 class Dialogpanel(ttk.Frame):
     
-    def __init__(self, master, output1, output2):
+    def __init__(self, master, transport, info, status):
         ttk.Frame.__init__(self, master)
         self.lock = False
         self.master = master
-        self.info = output1
-        self.status = output2
+        self.transport = transport
+        self.info = info
+        self.status = status
         self.ready = False
         self.filename = None
         self.path = None    # remember directory for next time
@@ -29,7 +29,7 @@ class Dialogpanel(ttk.Frame):
                                        text='Motors Off', width=10)
         self.printbtn = ttk.Button(self,command=self.startPrint,
                                        text='Print', width=10)
-        self.abortbtn = ttk.Button(self,command=self.stopPrint,
+        self.abortbtn = ttk.Button(self,command=self.abortPrint,
                                        text='Abort', width=10)
 
         self.portOpenbtn.grid(row=0, column=0, padx=2, pady=2)
@@ -42,14 +42,11 @@ class Dialogpanel(ttk.Frame):
         self.disable((self.motorsOffbtn, self.printbtn, self.abortbtn))
 
     def openComms(self):
-        ''' pop up the open comms window to setp serial ink.'''
-        if model.connected: # close port if already open
-            transport.kill = True   # abort communication thread
-            model.ready = False     # reset transprt state
-            model.connected = False
-            model.homed = set()     # unhome all axes (needed??)
+        ''' pop up the open comms window to setp serial link.'''
+        if d.connected: # close port if already open
+            self.transport.disconnect(status = self.status)
             self.portOpenbtn.configure(text='Connect')
-            if model.gcodeFile:
+            if d.gcodeFile:
                 self.disable((self.printbtn, self.motorsOffbtn))
             return
         if self.lock:   # allow only one instance of subwindow
@@ -67,8 +64,8 @@ class Dialogpanel(ttk.Frame):
                            command=lambda: self.setport(entry1.get(), 
                                             entry2.get(), openport), 
                            text='OK')
-        entry1.insert(0, model.port)
-        entry2.insert(0, str(model.baud))
+        entry1.insert(0, str(d.port))
+        entry2.insert(0, str(d.baud))
         cancelBtn = ttk.Button(openport, width=8,
                                command=lambda: self.shutdown(openport), 
                                text='Cancel')
@@ -82,21 +79,15 @@ class Dialogpanel(ttk.Frame):
         okBtn.focus_set()
         
     def setport(self, id, baud, widget):
-        ''' Save port specs and close widget. '''
+        ''' Save port specs, connect to printer and close widget. '''
         try:
-            model.port = id
-            model.baud = int(baud)
-            # start transport threads:
-            if transport.init(id, baud, self.info, self.status) < 0:
-                messagebox.showerror('Error', 'Error opening {} at {} baud'.
-                                     format(id, baud))
-                return
-            model.connected = True
-            self.status.show('Printer online\n')
-            self.portOpenbtn.configure(text='Close')
-            self.enable((self.motorsOffbtn))
-            if model.gcodeFile:
-                self.enable(self.printbtn)
+            d.port = id
+            d.baud = int(baud)
+            if self.transport.connect(status = self.status):
+                self.portOpenbtn.configure(text='Disconnect')
+                self.enable((self.motorsOffbtn))
+                if d.gcodeFile:
+                    self.enable(self.printbtn)
         except ValueError:
             print('Invalid baudrate')
         finally:
@@ -110,12 +101,12 @@ class Dialogpanel(ttk.Frame):
 
     def getfile(self):
         try:
-            if model.gcodeFile: # do we already have a file open?
-                model.gcodeFile.close() # yes; close it!
-                model.gcodeFile = None
+            if d.gcodeFile: # do we already have a file open?
+                d.gcodeFile.close() # yes; close it!
+                d.gcodeFile = None
             self.filename = fd.askopenfilename(filetypes=(('g-code','*.gcode'),
                                                           ('all files', '*.*')), 
-                                               initialdir = self.path)
+                                               initialdir = "./testdata")
             if self.filename:
                 # extract directory path and filename:
                 path = findall('(.*\/).*$', self.filename)[0]
@@ -123,46 +114,38 @@ class Dialogpanel(ttk.Frame):
                 file = findall('.*\/(.*)$', self.filename)[0]
                 self.status.show('Opening ' + file)
                 # open the file for later use:
-                model.gcodeFile = open(self.filename)
-                model.filesize = len(model.gcodeFile.readlines())
-                model.gcodeFile.seek(0)
-                if model.connected:
+                d.gcodeFile = open(self.filename)
+                d.filesize = len(d.gcodeFile.readlines())
+                if d.connected: # printer is online and gcode file is open
                     self.enable(self.printbtn)
         except Exception as e:
             messagebox.showerror('I/O Error', e)
-            model.gcodeFile = None
+            d.gcodeFile = None
         finally:
             if self.filename:
-                self.status.show(' Failed\n' if not model.gcodeFile
+                self.status.show(' Failed\n' if not d.gcodeFile
                              else ' ..Ok\n')  
             
     def powerDown(self):
         ''' Send M81 to turn motor power off. '''
-        model.xmtQ.put('M81')
+        d.xmtQ.put('M81')
         
     def startPrint(self):
-        if model.gcodeFile and model.ready and not model.printing:
-            self.status.show('Printing {} lines\n'.format(model.filesize))
-            model.curline = 0
-            model.gcodeFile.seek(0)
-            model.xmtQ.put('M110 N1')   # reset line number
-            model.linenum = 1
-            model.printing = True   # release the transmitter...
+        if self.transport.start_print():
+            self.status.show('Printing {} lines\n'.format(d.filesize))
             self.enable(self.abortbtn)
             self.disable((self.motorsOffbtn, self.printbtn,
                     self.portOpenbtn, self.fileOpenbtn))
+    
+    def abortPrint(self):
+        self.transport.abort_print()
+        self.status.show('\nAbort\n')
+        self.stopPrint()
 
     def stopPrint(self):
-        if model.printing:
-            self.status.show('\nAbort\n')
-            model.printing = False
-            model.xmtQ.put('M110 N1')   # reset line number
-            model.linenum = 1
-            self.disable(self.abortbtn)
-            self.enable((self.motorsOffbtn, self.portOpenbtn, 
-                         self.fileOpenbtn, self.printbtn))
-#            if model.gcodeFile:
-#                self.enable(self.printbtn)
+        self.disable(self.abortbtn)
+        self.enable((self.motorsOffbtn, self.portOpenbtn, 
+                     self.fileOpenbtn, self.printbtn))
                 
     def enable(self, btns):
         ''' Set state of specified buttons to 'normal'.'''
@@ -180,7 +163,6 @@ class Dialogpanel(ttk.Frame):
                 btn.config(state = 'disabled')
         except TypeError: # else single item
             btns.config(state = 'disabled')
-
 
 
 
