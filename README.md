@@ -6,5 +6,6 @@ base for learning how the interaction between
 host and printer is working.
 Requires tkinter, ThemedTk and themed_style.
 In Marlin 2.0 ADVANCED_OK must be set.
+Invoke by executing main.py.
 
 Suggestions, improvements and comments welcome!
